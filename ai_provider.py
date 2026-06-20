@@ -2,9 +2,6 @@
 #  AI Provider — "Cisca" Academic Advisor (Gemini, multi-key rotation)
 # ══════════════════════════════════════════════════════════
 #  Requires: pip install google-genai
-#  API keys are read from the GEMINI_API_KEYS env var (comma-separated),
-#  falling back to the hardcoded values for local/dev use.
-#  ⚠ SECURITY: rotate these keys and move them fully to env vars before production.
 
 import os
 import itertools
@@ -13,10 +10,10 @@ from google import genai
 from google.genai import types
 
 _DEFAULT_KEYS = [
-    "AIzaSyCRjiLD7JjfWyn5TLhKu4w2vxX3JoTJVCQ",
-    "AQ.Ab8RN6I4mrVGLOqd9rvUSawyVX8afVxyt2VKAT3Yp7FrKQHVWg",
-    "AQ.Ab8RN6J2MREEUV-nvYPFAoHTEM0OAHYDCcACPwNnkfSYcZhJbQ",
-    "AQ.Ab8RN6LvrIuKIoMRj07P3kIeTrt9P_i8JreEFNWGJzbPOGCl-w",
+    os.environ.get("GEMINI_KEY_1", ""),
+    os.environ.get("GEMINI_KEY_2", ""),
+    os.environ.get("GEMINI_KEY_3", ""),
+    os.environ.get("GEMINI_KEY_4", ""),
 ]
 
 _env_keys = os.environ.get("GEMINI_API_KEYS")
@@ -47,15 +44,11 @@ UNIVERSITY_SYSTEM_PROMPT = """
 
 
 class AIProvider:
-    """Base interface — implement generate() to plug in any AI model."""
-
     def generate(self, message: str, system_instruction: str) -> str:
         raise NotImplementedError
 
 
 class GeminiProvider(AIProvider):
-    """Google Gemini implementation with automatic key rotation on quota (429) errors."""
-
     def __init__(self):
         self._key_cycle = itertools.cycle(GEMINI_API_KEYS)
 
@@ -76,7 +69,6 @@ class GeminiProvider(AIProvider):
                 return response.text or ""
             except Exception as e:
                 last_error = e
-                # Quota exhausted on this key — try the next one
                 if "429" in str(e):
                     continue
                 raise
@@ -85,7 +77,6 @@ class GeminiProvider(AIProvider):
         )
 
 
-# ── Factory: this is the ONLY line to change when replacing the model ──
 _provider_instance = None
 
 
