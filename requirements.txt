@@ -1,6 +1,7 @@
-fastapi==0.111.0
-uvicorn[standard]==0.29.0
-sqlalchemy==2.0.30
-python-multipart==0.0.9
-firebase-admin==6.5.0
-google-genai==1.16.1
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+python-multipart
+firebase-admin
+google-genai
