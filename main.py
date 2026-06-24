@@ -202,6 +202,18 @@ def download_profile_picture(firebase_uid: str, db: Session = Depends(get_db)):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Profile picture file not found")
     
+    ext = os.path.splitext(user.profile_picture)[1].lower()
+    media_type_map = {
+        ".jpg":  "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png":  "image/png",
+        ".webp": "image/webp",
+        ".gif":  "image/gif",
+    }
+    media_type = media_type_map.get(ext, "image/jpeg")
+    return FileResponse(path, media_type=media_type)
+        raise HTTPException(status_code=404, detail="Profile picture file not found")
+    
     return FileResponse(path, media_type="application/octet-stream")
 
 
@@ -637,7 +649,11 @@ def get_all_instructors(db: Session = Depends(get_db)):
     """
     doctors = db.query(models.Student).filter(models.Student.role == "doctor").all()
     return [
-        {"firebase_uid": d.firebase_uid, "name": d.name}
+        {
+            "firebase_uid": d.firebase_uid,
+            "name": d.name,
+            "profile_picture": d.profile_picture or None,
+        }
         for d in doctors
     ]
 
