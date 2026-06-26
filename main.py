@@ -199,7 +199,8 @@ def download_profile_picture(firebase_uid: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No profile picture found")
     
     path = os.path.join(UPLOAD_DIR, user.profile_picture)
-if not os.path.exists(path):
+    
+    if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Profile picture file not found")
     
     ext = os.path.splitext(user.profile_picture)[1].lower()
@@ -211,12 +212,8 @@ if not os.path.exists(path):
         ".gif":  "image/gif",
     }
     media_type = media_type_map.get(ext, "image/jpeg")
-    return FileResponse(path, media_type=media_type)
-        raise HTTPException(status_code=404, detail="Profile picture file not found")
     
-    return FileResponse(path, media_type="application/octet-stream")
-
-
+    return FileResponse(path, media_type=media_type)
 
 
 def _build_schedule_for_uid(firebase_uid: str, db: Session) -> list:
@@ -230,7 +227,6 @@ def _build_schedule_for_uid(firebase_uid: str, db: Session) -> list:
         raise HTTPException(status_code=404, detail="User not found")
 
     result = []
-
     if user.role == "student":
         registrations = db.query(models.Registration).filter(
             models.Registration.student_id == user.id
