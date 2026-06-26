@@ -8,6 +8,16 @@ from typing import List, Tuple, Optional
 from datetime import datetime
 import os, uuid, shutil
 
+import cloudinary
+import cloudinary.uploader
+
+cloudinary.config(
+    cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", ""),
+    api_key    = os.environ.get("CLOUDINARY_API_KEY", ""),
+    api_secret = os.environ.get("CLOUDINARY_API_SECRET", ""),
+    secure     = True,
+)
+
 from database import SessionLocal, engine
 import models, crud
 
@@ -154,66 +164,60 @@ async def upload_profile_picture(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """Upload or update a user's profile picture."""
+    """Upload or update a user's profile picture (stored on Cloudinary)."""
     user = crud.get_student_by_firebase_uid(db, firebase_uid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    ext = os.path.splitext(file.filename)[1]
-    stored_name = f"profile_{user.id}_{uuid.uuid4().hex}{ext}"
-    dest = os.path.join(UPLOAD_DIR, stored_name)
-    
-    try:
-        with open(dest, "wb") as f_out:
-            shutil.copyfileobj(file.file, f_out)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
-    
-    # Delete old picture if it exists
-    if user.profile_picture:
+
+    # Delete old Cloudinary image if exists
+    if user.profile_picture and user.profile_picture.startswith("smart_institute/profile_"):
         try:
-            old_path = os.path.join(UPLOAD_DIR, user.profile_picture)
-            if os.path.exists(old_path):
-                os.remove(old_path)
+            public_id = user.profile_picture  # we store the public_id directly
+            cloudinary.uploader.destroy(public_id)
         except Exception:
             pass
-    
-    user.profile_picture = stored_name
+
+    public_id = f"smart_institute/profile_{user.id}_{uuid.uuid4().hex}"
+
+    try:
+        file_bytes = await file.read()
+        result = cloudinary.uploader.upload(
+            file_bytes,
+            public_id   = public_id,
+            overwrite   = True,
+            folder      = "",          # folder already in public_id
+            resource_type = "image",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")
+
+    # Store the Cloudinary public_id in the DB (URL is derived on download)
+    user.profile_picture = public_id
     db.commit()
     db.refresh(user)
-    
+
     return {
         "status": "success",
         "profile_picture": user.profile_picture,
-        "download_url": f"/profile/picture/download/{firebase_uid}"
+        "download_url": f"/profile/picture/download/{firebase_uid}",
     }
 
 
 @app.get("/profile/picture/download/{firebase_uid}")
 def download_profile_picture(firebase_uid: str, db: Session = Depends(get_db)):
-    """Download a user's profile picture."""
+    """Return the Cloudinary URL for a user's profile picture."""
+    from fastapi.responses import RedirectResponse
     user = crud.get_student_by_firebase_uid(db, firebase_uid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if not user.profile_picture:
         raise HTTPException(status_code=404, detail="No profile picture found")
-    
-    path = os.path.join(UPLOAD_DIR, user.profile_picture)
-    
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Profile picture file not found")
-    
-    ext = os.path.splitext(user.profile_picture)[1].lower()
-    media_type_map = {
-        ".jpg":  "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".png":  "image/png",
-        ".webp": "image/webp",
-        ".gif":  "image/gif",
-    }
-    media_type = media_type_map.get(ext, "image/jpeg")
-    
-    return FileResponse(path, media_type=media_type)
+
+    # Build Cloudinary delivery URL from stored public_id
+    url = cloudinary.utils.cloudinary_url(user.profile_picture)[0]
+    return RedirectResponse(url=url)
+
+
 
 
 def _build_schedule_for_uid(firebase_uid: str, db: Session) -> list:
@@ -227,6 +231,7 @@ def _build_schedule_for_uid(firebase_uid: str, db: Session) -> list:
         raise HTTPException(status_code=404, detail="User not found")
 
     result = []
+
     if user.role == "student":
         registrations = db.query(models.Registration).filter(
             models.Registration.student_id == user.id
