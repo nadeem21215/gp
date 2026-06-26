@@ -434,6 +434,41 @@ def seed():
 
         db.commit()
         print(f"✓ {history_count} history records inserted")
+
+        # ── Seed schedules ──
+        from seed_schedules import SCHEDULES
+        sched_count = 0
+        for code, days, tf, tt, hall in SCHEDULES:
+            exists = db.query(models.Course).filter(models.Course.code == code).first()
+            if not exists:
+                continue
+            existing = db.query(models.CourseSchedule).filter(models.CourseSchedule.course_code == code).first()
+            if existing:
+                existing.days = days
+                existing.time_from = tf
+                existing.time_to = tt
+                existing.hall = hall
+            else:
+                db.add(models.CourseSchedule(
+                    course_code=code, days=days, time_from=tf, time_to=tt, hall=hall
+                ))
+            sched_count += 1
+        db.commit()
+        print(f"✓ {sched_count} schedules inserted")
+
+        # ── Seed descriptions ──
+        from seed_descriptions import COURSES as DESC_COURSES
+        desc_count = 0
+        for code, (overview, objectives, topics, skills) in DESC_COURSES.items():
+            course = db.query(models.Course).filter(models.Course.code == code).first()
+            if not course:
+                continue
+            description = overview
+            course.description = description
+            desc_count += 1
+        db.commit()
+        print(f"✓ {desc_count} descriptions inserted")
+
         print("\n✅ Seed completed successfully!\n")
 
     except Exception as e:
