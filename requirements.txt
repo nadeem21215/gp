@@ -5,3 +5,4 @@ pydantic
 python-multipart
 firebase-admin
 google-genai
+cloudinary
