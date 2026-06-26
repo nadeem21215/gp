@@ -35,7 +35,7 @@ with engine.connect() as _conn:
         _conn.execute(text("ALTER TABLE students ADD COLUMN profile_picture VARCHAR"))
         _conn.commit()
 
-# ── Auto-seed if database is empty ──
+# ── Auto-seed: always reseed if doctor names are outdated ──
 def _auto_seed():
     db = SessionLocal()
     try:
@@ -46,9 +46,31 @@ def _auto_seed():
             seed()
             print("[SEED] Done.")
         else:
-            print(f"[SEED] Skipped — {count} users already in DB.")
+            # Check if old doctor names exist — reseed if so
+            old_doctor = db.query(models.Student).filter(
+                models.Student.firebase_uid.in_(["doctor_ahmed", "doctor_sara"])
+            ).first()
+            if old_doctor:
+                print("[SEED] Old doctor UIDs detected — force reseeding...")
+                db.query(models.StudentHistory).delete()
+                db.query(models.Registration).delete()
+                db.query(models.Submission).delete()
+                db.query(models.Assignment).delete()
+                db.query(models.CourseSchedule).delete()
+                db.query(models.Course).delete()
+                db.query(models.Student).delete()
+                db.commit()
+                db.close()
+                from seed_db import seed
+                seed()
+                print("[SEED] Done.")
+            else:
+                print(f"[SEED] Skipped — {count} users already in DB.")
     finally:
-        db.close()
+        try:
+            db.close()
+        except:
+            pass
 
 _auto_seed()
 
