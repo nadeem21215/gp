@@ -1479,39 +1479,29 @@ def _build_student_context(db: Session, user_id: str) -> str:
 - مقفولة (المتطلب غير مكتمل): {locked_str}
 """
 
-    # -- المنهج الكامل مقسم بالسنة والترم --
-    curriculum_section = "\n=== المنهج الدراسي الكامل ===\n"
-    for year in range(1, 5):
-        for term_in_year in range(1, 3):
-            flat_term = (year - 1) * 2 + term_in_year
-            term_courses = [c for c in all_courses if c.target_year == year and c.target_term == flat_term]
-            if not term_courses:
-                continue
-            curriculum_section += f"\nالسنة {year} - الترم {term_in_year} (ترم {flat_term}):\n"
-            for c in term_courses:
-                prereq_info = f" | متطلب: {c.prerequisite_code}" if c.prerequisite_code else ""
-                elective_info = " | اختياري" if c.is_elective else " | إجباري"
-                doc_name = doctor_names.get(c.doctor_uid, "غير محدد") if c.doctor_uid else "غير محدد"
-                curriculum_section += f"  - {c.name} (كود: {c.code} | {c.credit_hours} ساعات{prereq_info}{elective_info} | د. {doc_name})\n"
-
-    # -- بيانات الدكاترة ومواد كل دكتور --
-    doctors_section = "\n=== الدكاترة ومواد كل دكتور ===\n"
+    # -- الدكاترة --
+    doctors_section = "\n=== الدكاترة ===\n"
     all_doctors = db.query(models.Student).filter(models.Student.role == "doctor").all()
     for doc in all_doctors:
         doc_courses = [c for c in all_courses if c.doctor_uid == doc.firebase_uid]
-        course_names = ", ".join([f"{c.name} ({c.code})" for c in doc_courses]) or "لا توجد مواد مسندة"
-        doctors_section += f"- {doc.name} (كود: {doc.firebase_uid}): {course_names}\n"
+        course_names = ", ".join([f"{c.name}({c.code})" for c in doc_courses]) or "لا يوجد"
+        doctors_section += f"{doc.name}: {course_names}\n"
 
-    # -- قائمة كل الطلاب --
-    students_section = "\n=== قائمة الطلاب المسجلين ===\n"
+    # -- كل الطلاب --
+    students_section = "\n=== الطلاب ===\n"
     all_students = db.query(models.Student).filter(models.Student.role == "student").all()
     for s in all_students:
-        students_section += (
-            f"- {s.name} (كود: {s.firebase_uid} | السنة: {s.current_year} | "
-            f"الترم: {s.current_term} | GPA: {s.gpa} | إنذارات: {s.warnings or 0})\n"
-        )
+        students_section += f"{s.name}({s.firebase_uid}) س{s.current_year}ت{s.current_term} GPA:{s.gpa} إنذارات:{s.warnings or 0}\n"
 
-    return student_info + curriculum_section + doctors_section + students_section
+    # -- المنهج الكامل --
+    curriculum_section = "\n=== المنهج ===\n"
+    for c in sorted(all_courses, key=lambda x: (x.target_year, x.target_term)):
+        prereq_info = f" متطلب:{c.prerequisite_code}" if c.prerequisite_code else ""
+        elective_info = "اختياري" if c.is_elective else "إجباري"
+        doc_name = doctor_names.get(c.doctor_uid, "؟") if c.doctor_uid else "؟"
+        curriculum_section += f"{c.name}({c.code}) {c.credit_hours}س س{c.target_year}ت{c.target_term} {elective_info}{prereq_info} د.{doc_name}\n"
+
+    return student_info + doctors_section + students_section + curriculum_section
 
 
 @app.post("/chat/message")
