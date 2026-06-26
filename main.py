@@ -199,7 +199,7 @@ def download_profile_picture(firebase_uid: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="No profile picture found")
     
     path = os.path.join(UPLOAD_DIR, user.profile_picture)
-    if not os.path.exists(path):
+if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Profile picture file not found")
     
     ext = os.path.splitext(user.profile_picture)[1].lower()
