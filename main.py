@@ -54,6 +54,26 @@ _auto_seed()
 
 app = FastAPI(title="Smart Institute API", version="7.0.0")
 
+@app.post("/admin/reseed")
+def force_reseed():
+    """Force re-seed the database — deletes all data and re-seeds."""
+    import models as _models
+    from seed_db import seed as _seed
+    db = SessionLocal()
+    try:
+        db.query(_models.StudentHistory).delete()
+        db.query(_models.Registration).delete()
+        db.query(_models.Submission).delete()
+        db.query(_models.Assignment).delete()
+        db.query(_models.CourseSchedule).delete()
+        db.query(_models.Course).delete()
+        db.query(_models.Student).delete()
+        db.commit()
+    finally:
+        db.close()
+    _seed()
+    return {"status": "reseeded successfully"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
