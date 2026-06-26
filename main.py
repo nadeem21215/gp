@@ -1348,16 +1348,18 @@ class ChatRequest(BaseModel):
 
 def _build_student_context(db: Session, user_id: str) -> str:
     """
-    Build the full 'Cisca' context block: student academic status, term-by-term
-    course breakdown (repeat / core / elective / locked), and the live doctor
-    name lookup — all sourced from the database via existing crud helpers.
+    Build the full Cisca context: student status, full curriculum with prereqs,
+    passed/failed history, all doctors and their courses, all students list.
     """
     student = crud.get_student_by_firebase_uid(db, user_id)
     if not student:
         return ""
 
-    passed_codes = [h.course_code for h in crud.get_passed_history(db, student.id)] or []
-    failed_codes = [h.course_code for h in crud.get_failed_history(db, student.id)] or []
+    # -- بيانات الطالب الأساسية --
+    passed_history = crud.get_passed_history(db, student.id)
+    failed_history = crud.get_failed_history(db, student.id)
+    passed_codes = [h.course_code for h in passed_history] or []
+    failed_codes = [h.course_code for h in failed_history] or []
 
     student_gpa = float(student.gpa) if student.gpa is not None else 0.0
     max_allowed_hours = crud.get_max_allowed_hours(student_gpa)
@@ -1367,7 +1369,9 @@ def _build_student_context(db: Session, user_id: str) -> str:
     expected_term = (current_year * 2 - 1) if current_term == 1 else (current_year * 2)
 
     all_courses = db.query(models.Course).all()
+    doctor_names = crud.get_doctor_names_map(db)
 
+    # -- تحليل مواد الترم الحالي --
     failed_courses_to_register = []
     current_term_core_available = []
     current_term_elective_available = []
@@ -1388,25 +1392,67 @@ def _build_student_context(db: Session, user_id: str) -> str:
             else:
                 current_term_locked.append(f"{course.name} ({code}) بسبب عدم اجتياز المتطلب ({prereq})")
 
-    failed_str   = ", ".join(failed_courses_to_register) if failed_courses_to_register else "لا يوجد"
-    core_str     = ", ".join(current_term_core_available) if current_term_core_available else "لا يوجد"
-    elective_str = ", ".join(current_term_elective_available) if current_term_elective_available else "لا يوجد"
-    locked_str   = ", ".join(current_term_locked) if current_term_locked else "لا يوجد"
+    failed_reg_str = ", ".join(failed_courses_to_register) if failed_courses_to_register else "لا يوجد"
+    core_str       = ", ".join(current_term_core_available) if current_term_core_available else "لا يوجد"
+    elective_str   = ", ".join(current_term_elective_available) if current_term_elective_available else "لا يوجد"
+    locked_str     = ", ".join(current_term_locked) if current_term_locked else "لا يوجد"
+
+    # -- المواد المجتازة والراسب فيها --
+    passed_str = ", ".join([f"{h.course_code} (درجة: {h.grade or 'غير مسجلة'})" for h in passed_history]) or "لا يوجد"
+    failed_hist_str = ", ".join([f"{h.course_code} (درجة: {h.grade or 'غير مسجلة'})" for h in failed_history]) or "لا يوجد"
 
     student_info = f"""
-[بيانات الطالب]: الاسم: {student.name}, المعدل التراكمي: {student_gpa}, عدد الإنذارات: {student.warnings or 0}, السنة الدراسية: {current_year}, الترم: {current_term}, الحد الأقصى للساعات: {max_allowed_hours}.
-أولويات التسجيل: الإعادة ({failed_str})، الإجبارية ({core_str})، الاختيارية ({elective_str}).
-المواد المقفولة: {locked_str}.
+=== بيانات الطالب الحالي ===
+الاسم: {student.name}
+كود الطالب: {student.firebase_uid}
+المعدل التراكمي (GPA): {student_gpa}
+السنة الدراسية: {current_year} | الترم: {current_term}
+عدد الإنذارات: {student.warnings or 0}
+الحد الأقصى للساعات: {max_allowed_hours} ساعة
+
+المواد المجتازة: {passed_str}
+المواد الراسب فيها: {failed_hist_str}
+
+أولويات التسجيل للترم القادم:
+- إعادة: {failed_reg_str}
+- إجبارية متاحة: {core_str}
+- اختيارية متاحة: {elective_str}
+- مقفولة (المتطلب غير مكتمل): {locked_str}
 """
 
-    # Doctor name lookup, built live from registered instructor accounts
-    doctor_names = crud.get_doctor_names_map(db)
-    courses_details = "\nبيانات الدكاترة للمواد:\n"
-    for c in all_courses:
-        doc_name = doctor_names.get(c.doctor_uid, "غير معروف") if c.doctor_uid else "غير معروف"
-        courses_details += f"- مادة {c.name} (كود {c.code}) يدرسها {doc_name}.\n"
+    # -- المنهج الكامل مقسم بالسنة والترم --
+    curriculum_section = "\n=== المنهج الدراسي الكامل ===\n"
+    for year in range(1, 5):
+        for term_in_year in range(1, 3):
+            flat_term = (year - 1) * 2 + term_in_year
+            term_courses = [c for c in all_courses if c.target_year == year and c.target_term == flat_term]
+            if not term_courses:
+                continue
+            curriculum_section += f"\nالسنة {year} - الترم {term_in_year} (ترم {flat_term}):\n"
+            for c in term_courses:
+                prereq_info = f" | متطلب: {c.prerequisite_code}" if c.prerequisite_code else ""
+                elective_info = " | اختياري" if c.is_elective else " | إجباري"
+                doc_name = doctor_names.get(c.doctor_uid, "غير محدد") if c.doctor_uid else "غير محدد"
+                curriculum_section += f"  - {c.name} (كود: {c.code} | {c.credit_hours} ساعات{prereq_info}{elective_info} | د. {doc_name})\n"
 
-    return student_info + courses_details
+    # -- بيانات الدكاترة ومواد كل دكتور --
+    doctors_section = "\n=== الدكاترة ومواد كل دكتور ===\n"
+    all_doctors = db.query(models.Student).filter(models.Student.role == "doctor").all()
+    for doc in all_doctors:
+        doc_courses = [c for c in all_courses if c.doctor_uid == doc.firebase_uid]
+        course_names = ", ".join([f"{c.name} ({c.code})" for c in doc_courses]) or "لا توجد مواد مسندة"
+        doctors_section += f"- {doc.name} (كود: {doc.firebase_uid}): {course_names}\n"
+
+    # -- قائمة كل الطلاب --
+    students_section = "\n=== قائمة الطلاب المسجلين ===\n"
+    all_students = db.query(models.Student).filter(models.Student.role == "student").all()
+    for s in all_students:
+        students_section += (
+            f"- {s.name} (كود: {s.firebase_uid} | السنة: {s.current_year} | "
+            f"الترم: {s.current_term} | GPA: {s.gpa} | إنذارات: {s.warnings or 0})\n"
+        )
+
+    return student_info + curriculum_section + doctors_section + students_section
 
 
 @app.post("/chat/message")
