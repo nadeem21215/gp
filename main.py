@@ -35,6 +35,23 @@ with engine.connect() as _conn:
         _conn.execute(text("ALTER TABLE students ADD COLUMN profile_picture VARCHAR"))
         _conn.commit()
 
+# ── Auto-seed if database is empty ──
+def _auto_seed():
+    db = SessionLocal()
+    try:
+        count = db.query(models.Student).count()
+        if count == 0:
+            print("[SEED] Database is empty — running seed...")
+            from seed_db import seed
+            seed()
+            print("[SEED] Done.")
+        else:
+            print(f"[SEED] Skipped — {count} users already in DB.")
+    finally:
+        db.close()
+
+_auto_seed()
+
 app = FastAPI(title="Smart Institute API", version="7.0.0")
 
 app.add_middleware(
@@ -1348,7 +1365,7 @@ class ChatRequest(BaseModel):
 
 def _build_student_context(db: Session, user_id: str) -> str:
     """
-    Build the full Cisca context: student status, full curriculum with prereqs,
+    Build the full Za3boula context: student status, full curriculum with prereqs,
     passed/failed history, all doctors and their courses, all students list.
     """
     student = crud.get_student_by_firebase_uid(db, user_id)
